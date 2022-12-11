@@ -310,7 +310,10 @@ def build(args):
     # you should pass `num_classes` to be 2 (max_obj_id + 1).
     # For more details on this, check the following discussion
     # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
-    num_classes = 20 if args.dataset_file != 'coco' else 91
+    
+    # num_classes = 20 if args.dataset_file != 'coco' else 91
+    # num_classes = 91  # With Mini COCO dataset:wq
+    num_classes = 8 # COLOR DATASET | 9 classes for MONO DATASET
     if args.dataset_file == "coco_panoptic":
         # for panoptic, we just add a num_classes that is large enough to hold
         # max_obj_id + 1, but the exact value doesn't really matter
@@ -320,6 +323,7 @@ def build(args):
     backbone = build_backbone(args)
 
     transformer = build_transformer(args)
+    
 
     model = DETR(
         backbone,
@@ -328,6 +332,8 @@ def build(args):
         num_queries=args.num_queries,
         aux_loss=args.aux_loss,
     )
+    
+    #model = torch.hub.load('facebookresearch/detr:main', 'detr_resnet50', pretrained=True)
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
     matcher = build_matcher(args)

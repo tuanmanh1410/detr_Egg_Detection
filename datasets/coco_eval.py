@@ -48,6 +48,10 @@ class CocoEvaluator(object):
 
             coco_eval.cocoDt = coco_dt
             coco_eval.params.imgIds = list(img_ids)
+           
+            coco_eval.params.catIds = [1,2,3,4,5] # For COLOR dataset
+            #coco_eval.params.catIds = [1,2,3,4,5,6] # For MONO dataset
+
             img_ids, eval_imgs = evaluate(coco_eval)
 
             self.eval_imgs[iou_type].append(eval_imgs)
