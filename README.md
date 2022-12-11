@@ -1,7 +1,12 @@
 **DE⫶TR**: End-to-End Object Detection with Transformers
 ========
 
-[![Support Ukraine](https://img.shields.io/badge/Support-Ukraine-FFD500?style=flat&labelColor=005BBB)](https://opensource.fb.com/support-ukraine)
+DETR for Custom Dataset - Here is Egg Dataset
+
+First of all , if you want to train your own dataset, you should prepare your dataset in COCO format.
+About the model, we need to remove the head weihts of pretrained model if you want to apply pretrained model to your dataset.
+To do this, run Get_checkpoint.py first and then run train.py
+
 
 PyTorch training code and pretrained models for **DETR** (**DE**tection **TR**ansformer).
 We replace the full complex hand-crafted object detection pipeline with a Transformer, and match Faster R-CNN with a ResNet-50, obtaining **42 AP** on COCO using half the computation power (FLOPs) and the same number of parameters. Inference in 50 lines of PyTorch.
