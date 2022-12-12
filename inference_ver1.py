@@ -27,7 +27,6 @@ CLASSES = [
     'Scratch',
 ]
 
-CLASS = ['N/A', 'Egg']
 
 
 def get_args_parser():
