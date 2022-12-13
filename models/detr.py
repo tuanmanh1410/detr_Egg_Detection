@@ -313,7 +313,7 @@ def build(args):
     
     # num_classes = 20 if args.dataset_file != 'coco' else 91
     # num_classes = 91  # With Mini COCO dataset:wq
-    num_classes = 8 # COLOR DATASET | 9 classes for MONO DATASET
+    num_classes = 9 # COLOR DATASET | 9 classes for MONO DATASET
     if args.dataset_file == "coco_panoptic":
         # for panoptic, we just add a num_classes that is large enough to hold
         # max_obj_id + 1, but the exact value doesn't really matter
@@ -328,7 +328,7 @@ def build(args):
     model = DETR(
         backbone,
         transformer,
-        num_classes=num_classes,
+        num_classes=args.num_classes,
         num_queries=args.num_queries,
         aux_loss=args.aux_loss,
     )

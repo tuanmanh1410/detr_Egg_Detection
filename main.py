@@ -29,7 +29,7 @@ def get_args_parser():
                         help='gradient clipping max norm')
 
     # Model parameters
-    parser.add_argument('--num_classes', type=int, default=None,
+    parser.add_argument('--num_classes', type=int, default=8,
                         help="Number of classes in dataset+1")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
