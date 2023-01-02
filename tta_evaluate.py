@@ -270,6 +270,8 @@ if __name__ == '__main__':
     print("Command line:")
 
     print("Start time: ", datetime.datetime.now())
+    start_time = time.time()
+
 
     transform = T.Compose([
     T.Resize(800),
@@ -281,8 +283,11 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.resume, map_location='cpu')
     model.load_state_dict(checkpoint['model'], strict=False)
 
-    DIR_TEST = './TTA_COLOR'
+    DIR_TEST = './MONO_Images_Demo'
     test_images = collect_all_images(DIR_TEST)
+
+    total = len(test_images)
+    count = 0
 
     for image in test_images:
 
@@ -294,15 +299,16 @@ if __name__ == '__main__':
         print('----------------------------------------------------------------------')
         # Get the only name of the image
         image = image.split('/')[-1]
-        print('Image: ', image)
+        count += 1
+        print("[{}/{}]Image:{}".format(count, total, image))
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
       
-        print('Number of predicted bounding boxes: ', len(boxes_1)) 
+        #print('Number of predicted bounding boxes: ', len(boxes_1)) 
         # Sort the bounding boxes by x_min
         boxes_1.sort(key=lambda x: x[0])
         # Write the predicted bounding boxes to the csv file
-        with open('COLOR_bbox_prediction.csv', 'a', newline='') as file:
+        with open('MONO_bbox_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file)
             for i in range(len(boxes_1)):
                 # Create line: image, x_min, y_min, x_max, y_max
@@ -314,6 +320,7 @@ if __name__ == '__main__':
     print('----------------------------------------------------------------------')
     print('Finish counting bounding boxes!!')
     print("Time complete counting bounding boxes: ", datetime.datetime.now())
+    print("The total time: ", time.time() - start_time)
     print('----------------------------------------------------------------------')
 
     # Compute mAP
