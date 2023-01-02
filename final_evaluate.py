@@ -317,8 +317,6 @@ if __name__ == '__main__':
         for i in range(len(boxes_1)):
             print(classes[i], boxes_1[i])
 
-        max = Max(object_count, len(boxes_1))
-
         count += 1
 
     # Finish counting bounding boxes
