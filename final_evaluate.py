@@ -1,8 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import argparse
 import datetime
-import json
-import random
+
 import time
 from pathlib import Path
 
@@ -34,13 +33,13 @@ def get_args_parser():
     parser.add_argument('--lr_backbone', default=1e-5, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=200, type=int)
+    parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--lr_drop', default=50, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
 
     # Model parameters
-    parser.add_argument('--num_classes', type=int, default=8,
+    parser.add_argument('--num_classes', default=7, type=int,
                         help="Number of classes in dataset+1")
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
@@ -199,7 +198,7 @@ def Select_Bounding_Boxes(probas, bboxes_scaled):
     probas = probas.tolist()
 
     # Delete bounding boxes having index in index_remove
-    # Sort index_remove in descending order
+    # Sort index_remove in descending order to avoid out of range error
     index_remove.sort(reverse=True)
     for i in index_remove:
         del bboxes_scaled[i]
@@ -216,17 +215,20 @@ def Get_GroundTruth_Bounding_Boxes(file_name):
     # Read information from <object_count> tag
     object_count = int(root.find('object_count').text)
     Bbox_GT = []
+    class_code_GT = []
 
     for member in root.findall('bndbox'):
         xmin = float(member.find('x_min').text)
         ymin = float(member.find('y_min').text)
         xmax = float(member.find('x_max').text)
         ymax = float(member.find('y_max').text)
+        state = int(member.find('state').text)
         bndbox = [xmin, ymin, xmax, ymax]
         # Append bounding box to the Bbox_GT list
         Bbox_GT.append(bndbox)
+        class_code_GT.append(state)
     
-    return object_count, Bbox_GT
+    return object_count, Bbox_GT, class_code_GT
 
 
 def Evaluate_AP(model, args):
@@ -247,8 +249,113 @@ def Evaluate_AP(model, args):
 
     return coco_evaluator
 
+# Get the IoU between two bounding boxes
+def Get_IoU(bbox1, bbox2):
+    # bbox1 and bbox2 are two bounding boxes in the form of [xmin, ymin, xmax, ymax]
+    # Get the coordinates of the intersection rectangle
+    x_left = max(bbox1[0], bbox2[0])
+    y_top = max(bbox1[1], bbox2[1])
+    x_right = min(bbox1[2], bbox2[2])
+    y_bottom = min(bbox1[3], bbox2[3])
+
+    # Check if the two bounding boxes intersect
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0
+
+    # Calculate the area of intersection rectangle
+    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+
+    # Calculate the area of both bounding boxes
+    bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+    bbox2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+
+    # Calculate the IoU
+    iou = intersection_area / float(bbox1_area + bbox2_area - intersection_area)
+
+    return iou
+
+# Get the TP, FP, FN for each image following the IoU threshold
+def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT, IOU_threshold):
+    # Initialize TP, FP, FN
+    TP = 0
+    FP = 0
+    FN = 0
+
+    # Get the class code of the bounding box
+    class_code = Get_ClassCode(probas)
+
+    # Convert the bounding boxes to list
+    bboxes_scaled = bboxes_scaled.tolist()
+
+    # Start compute TP, FP, FN
+    for i in range(len(bboxes_scaled)):
+        for j in range(len(Bbox_GT)):
+            if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
+                if class_code[i] == class_code_GT[j]:
+                    TP += 1
+                else:
+                    FP += 1
+            
+    # Compute FN
+    FN = object_count - TP
+
+    return TP, FP, FN
+            
+
+
+# Get the TP, FP, FN for each image following the distance of the center coordinates
+def Get_TP_FP_FN(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT):
+        # Bboxes_scaled and probas are kept before removing overlapping bounding boxes
+        # BBox_GT is the ground truth bounding box along with the class code
+        # object_count is the number of objects in the image from the ground truth bounding box
+
+        # Initialize TP, FP, FN
+        TP = 0
+        FP = 0
+        FN = 0
+    
+        # Get the class code of the bounding box
+        class_code = Get_ClassCode(probas)
+    
+        # Get the center coordinates of the bounding box
+        center_x = (bboxes_scaled[:, 0] + bboxes_scaled[:, 2]) / 2
+        center_y = (bboxes_scaled[:, 1] + bboxes_scaled[:, 3]) / 2
+    
+        # Combine center_x and center_y to get the center coordinates
+        center = torch.stack((center_x, center_y), dim=1)
+        center = center.tolist()
+    
+        # Get the center coordinates of the ground truth bounding box
+        # BBbox_GT is a list of bounding boxes
+        # Convert Bbox_GT to tensor
+        Bbox_GT = torch.tensor(Bbox_GT)
+        center_x_GT = (Bbox_GT[:, 0] + Bbox_GT[:, 2]) / 2
+        center_y_GT = (Bbox_GT[:, 1] + Bbox_GT[:, 3]) / 2
+    
+        # Combine center_x and center_y to get the center coordinates
+        center_GT = torch.stack((center_x_GT, center_y_GT), dim=1)
+        center_GT = center_GT.tolist()
+    
+        # Get the TP, FP, FN
+        # Can check IoU of 2 bounding boxes as the condition to compare
+
+        for i in range(len(center)):
+            for j in range(len(center_GT)):
+                dist = distance(center[i], center_GT[j])
+                if dist < 40:
+                    if class_code[i] == class_code_GT[j]:
+                        TP += 1
+                        break
+                    else:
+                        FP += 1
+                        break
+    
+        FN = object_count - TP
+
+        return TP, FP, FN
+
 def Get_ClassCode(scores):
-    # scores_1 is a tensor
+    # scores is a tensor
     class_code = []
     for p in scores:
         cl = p.argmax()
@@ -267,9 +374,9 @@ if __name__ == '__main__':
     # Show the command line arguments
     print("Command line:")
 
-    print("python final_evaluate.py --resume " + args.resume +  \
-        " --coco_path " + args.coco_path + " --batch_size " + str(args.batch_size) +  \
-        " --num_classes " + str(args.num_classes))
+    #print("python final_evaluate.py --resume " + args.resume +  \
+     #   " --coco_path " + args.coco_path + " --batch_size " + str(args.batch_size) +  \
+      #  " --num_classes " + str(args.num_classes))
     print('----------------------------------------------------------------------------')
 
     print("Start time: ", datetime.datetime.now())
@@ -284,19 +391,24 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.resume, map_location='cpu')
     model.load_state_dict(checkpoint['model'], strict=False)
 
-    DIR_TEST = './COLOR_1K/test'
+    DIR_TEST = './COLOR_5K/test'
     test_images = collect_all_images(DIR_TEST)
 
     count = 0
 
+    # Initialize Global TP, FP, FN
+    Global_TP = 0
+    Global_FP = 0
+    Global_FN = 0
+
     for image in test_images:
-        if (count == 100):
+        if (count == 500):
             break
         img = Image.open(image)
         # Replace the path of the image with the path of the xml file
         xml_file = image.replace('jpg', 'xml')
         # Get the number of ground truth bounding boxes and the ground truth bounding boxes
-        object_count, Bbox_GT = Get_GroundTruth_Bounding_Boxes(xml_file)
+        object_count, Bbox_GT, class_code_GT = Get_GroundTruth_Bounding_Boxes(xml_file)
 
         # Reset scores and boxes
         scores = []
@@ -306,6 +418,17 @@ if __name__ == '__main__':
         print('Image: ', image)
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
+        # Compute TP, FP, FN
+        #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
+        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold=0.5)
+        # Print TP, FP, FN in one line
+        #print("Fusion Metrics:")
+        #print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
+
+        # Accumulate TP, FP, FN
+        Global_TP += TP
+        Global_FP += FP
+        Global_FN += FN
 
         # Get the class of the bounding box
         classes = Get_ClassCode(scores_1)
@@ -313,11 +436,20 @@ if __name__ == '__main__':
         #print(boxes_1)
         print('Number of ground truth bounding boxes: ', object_count)
         print('Number of predicted bounding boxes: ', len(boxes_1)) 
-        print('Details of predicted bounding boxes: (Class Code + bounding boxes)')
-        for i in range(len(boxes_1)):
-            print(classes[i], boxes_1[i])
+        
+
+        Detailed = False
+        if (Detailed == True):
+            print('Details of predicted bounding boxes: (Class Code + bounding boxes)')
+            for i in range(len(boxes_1)):
+                print(classes[i], boxes_1[i])
 
         count += 1
+
+    # Print Global TP, FP, FN
+    print('----------------------------------------------------------------------')
+    print('Global Metrics:')
+    print('Global TP:{} Global FP:{} Global FN:{}'.format(Global_TP, Global_FP, Global_FN))
 
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')
