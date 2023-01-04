@@ -373,10 +373,9 @@ if __name__ == '__main__':
     
     # Show the command line arguments
     print("Command line:")
-
-    #print("python final_evaluate.py --resume " + args.resume +  \
-     #   " --coco_path " + args.coco_path + " --batch_size " + str(args.batch_size) +  \
-      #  " --num_classes " + str(args.num_classes))
+    # Print the command line arguments
+    print('python final_evaluate.py --resume' + args.resume + ' --batch_size ' + str(args.batch_size) \
+        + ' --num_classes ' + str(args.num_classes))
     print('----------------------------------------------------------------------------')
 
     print("Start time: ", datetime.datetime.now())
@@ -420,10 +419,11 @@ if __name__ == '__main__':
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
         #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
-        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold=0.5)
+        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold=0.85)
+
         # Print TP, FP, FN in one line
-        #print("Fusion Metrics:")
-        #print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
+        print("Fusion Metrics with corresponding IOU (0.5):")
+        print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
 
         # Accumulate TP, FP, FN
         Global_TP += TP
