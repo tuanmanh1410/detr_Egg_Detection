@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 """
-Train and eval functions used in main.py
+Eval functions used in final_evaluate.py
 """
 import math
 import os
