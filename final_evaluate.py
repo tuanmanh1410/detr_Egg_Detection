@@ -13,6 +13,7 @@ import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate
+from tta_engine import tta_evaluate
 from models import build_model
 
 # Library for evaluation bounding boxes
@@ -247,7 +248,34 @@ def Evaluate_AP(model, args):
 
     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir)
 
-    return coco_evaluator
+    return test_stats
+
+
+def Evaluate_AP_EachClass(model, args):
+
+    dataset_test = build_dataset(image_set='test', args=args)
+    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
+
+    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
+                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
+
+
+    # Evaluate
+    base_ds = get_coco_api_from_dataset(dataset_test)
+
+    model = model.to(args.device)
+
+    # Hard code here
+    CatIDs = [1,2,3,4,5,6,7]
+    # End hard code
+
+    G_mAP = []
+    for CatID in CatIDs:
+        test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
+        G_mAP.append(test_stats["coco_eval_bbox"][0])
+
+    return G_mAP
+
 
 # Get the IoU between two bounding boxes
 def Get_IoU(bbox1, bbox2):
@@ -390,7 +418,8 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.resume, map_location='cpu')
     model.load_state_dict(checkpoint['model'], strict=False)
 
-    DIR_TEST = './COLOR_5K/test'
+    #DIR_TEST = './COLOR_5K/test'
+    DIR_TEST = os.path.join(args.coco_path, '/test')
     test_images = collect_all_images(DIR_TEST)
 
     count = 0
@@ -460,3 +489,10 @@ if __name__ == '__main__':
 
     # Compute mAP
     # Evaluate_AP(model, args)
+
+    # Compute mAP50 for each class
+    AP = Evaluate_AP_EachClass(model, args)
+
+    # Print mAP
+    print('----------------------------------------------------------------------')
+    print('AP50 for each class: ', mAP)

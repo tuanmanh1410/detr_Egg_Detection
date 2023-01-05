@@ -72,12 +72,12 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
-    header = 'Test:'
+    header = 'Evaluation:'
 
     iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
-    #coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = np.array([0.2, 0.95])
-
+    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = np.array([0.5, 0.75])
+    # coco_evaluator.coco_eval[iou_types[0]].params.catIds = [2]
     panoptic_evaluator = None
     if 'panoptic' in postprocessors.keys():
         panoptic_evaluator = PanopticEvaluator(

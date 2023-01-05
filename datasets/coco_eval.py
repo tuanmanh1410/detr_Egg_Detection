@@ -49,6 +49,9 @@ class CocoEvaluator(object):
             coco_eval.cocoDt = coco_dt
             coco_eval.params.imgIds = list(img_ids)
 
+            # For reference get category ids from the ground truth
+            # coco_eval.params.catIds = list(self.coco_gt.getCatIds())
+
             img_ids, eval_imgs = evaluate(coco_eval)
 
             self.eval_imgs[iou_type].append(eval_imgs)
