@@ -1,5 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-import argparse
+# Command line: python final_evaluate.py --coco_path --resume --num_classes
 import datetime
 
 import time
@@ -113,6 +112,53 @@ def get_args_parser():
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     return parser
+
+# Function to evaluate the model by computing the mAP score
+def Evaluate_AP(model, args):
+
+    dataset_test = build_dataset(image_set='test', args=args)
+    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
+
+    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
+                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
+
+
+    # Evaluate
+    base_ds = get_coco_api_from_dataset(dataset_test)
+
+    model = model.to(args.device)
+
+    test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir)
+
+    return test_stats
+
+
+def Evaluate_AP_EachClass(model, args):
+
+    dataset_test = build_dataset(image_set='test', args=args)
+    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
+
+    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
+                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
+
+
+    # Evaluate
+    base_ds = get_coco_api_from_dataset(dataset_test)
+
+    model = model.to(args.device)
+
+    # Hard code here
+    CatIDs = [1,2,3,4,5,6,7]
+    # End hard code
+
+    G_mAP = []
+    for CatID in CatIDs:
+        test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
+        G_mAP.append(test_stats["coco_eval_bbox"][1]) # Get the mAP50 of the current class
+
+    return G_mAP
+
+#**************Inference Phase***************#
 
 # Preprocess image - Get list of images
 def collect_all_images(dir_test):
@@ -230,51 +276,6 @@ def Get_GroundTruth_Bounding_Boxes(file_name):
         class_code_GT.append(state)
     
     return object_count, Bbox_GT, class_code_GT
-
-
-def Evaluate_AP(model, args):
-
-    dataset_test = build_dataset(image_set='test', args=args)
-    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-
-    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
-                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
-
-
-    # Evaluate
-    base_ds = get_coco_api_from_dataset(dataset_test)
-
-    model = model.to(args.device)
-
-    test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir)
-
-    return test_stats
-
-
-def Evaluate_AP_EachClass(model, args):
-
-    dataset_test = build_dataset(image_set='test', args=args)
-    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-
-    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
-                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
-
-
-    # Evaluate
-    base_ds = get_coco_api_from_dataset(dataset_test)
-
-    model = model.to(args.device)
-
-    # Hard code here
-    CatIDs = [1,2,3,4,5,6,7]
-    # End hard code
-
-    G_mAP = []
-    for CatID in CatIDs:
-        test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
-        G_mAP.append(test_stats["coco_eval_bbox"][1]) # Get the mAP50 of the current class
-
-    return G_mAP
 
 
 # Get the IoU between two bounding boxes
