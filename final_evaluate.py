@@ -272,7 +272,7 @@ def Evaluate_AP_EachClass(model, args):
     G_mAP = []
     for CatID in CatIDs:
         test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
-        G_mAP.append(test_stats["coco_eval_bbox"][0])
+        G_mAP.append(test_stats["coco_eval_bbox"][1]) # Get the mAP50 of the current class
 
     return G_mAP
 
@@ -403,7 +403,7 @@ if __name__ == '__main__':
     print("Command line:")
     # Print the command line arguments
     print('python final_evaluate.py --resume' + args.resume + ' --batch_size ' + str(args.batch_size) \
-        + ' --num_classes ' + str(args.num_classes))
+        + ' --num_classes ' + str(args.num_classes)+ ' --coco_path ' + args.coco_path)
     print('----------------------------------------------------------------------------')
 
     print("Start time: ", datetime.datetime.now())
@@ -418,8 +418,7 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.resume, map_location='cpu')
     model.load_state_dict(checkpoint['model'], strict=False)
 
-    #DIR_TEST = './COLOR_5K/test'
-    DIR_TEST = os.path.join(args.coco_path, '/test')
+    DIR_TEST = os.path.join(args.coco_path, 'test')
     test_images = collect_all_images(DIR_TEST)
 
     count = 0
@@ -494,5 +493,5 @@ if __name__ == '__main__':
     AP = Evaluate_AP_EachClass(model, args)
 
     # Print mAP
-    print('----------------------------------------------------------------------')
-    print('AP50 for each class: ', mAP)
+    print('-------------------------------------------------------------------------------')
+    print('AP50 for each class: ', AP)
