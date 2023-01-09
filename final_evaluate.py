@@ -1,4 +1,4 @@
-# Command line: python final_evaluate.py --coco_path --resume --num_classes
+# Command line: python final_evaluate.py --coco_path --resume --num_classes --detail
 import datetime
 import argparse
 
@@ -35,6 +35,7 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=100, type=int)
+    parser.add_argument('--detail', default=False, type=bool)
     parser.add_argument('--lr_drop', default=50, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
@@ -423,16 +424,12 @@ if __name__ == '__main__':
     DIR_TEST = os.path.join(args.coco_path, 'test')
     test_images = collect_all_images(DIR_TEST)
 
-    count = 0
-
     # Initialize Global TP, FP, FN
     Global_TP = 0
     Global_FP = 0
     Global_FN = 0
 
     for image in test_images:
-        if (count == 500):
-            break
         img = Image.open(image)
         # Replace the path of the image with the path of the xml file
         xml_file = image.replace('jpg', 'xml')
@@ -449,10 +446,9 @@ if __name__ == '__main__':
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
         #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
-        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold=0.85)
+        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5)
 
         # Print TP, FP, FN in one line
-        print("Fusion Metrics with corresponding IOU (0.5):")
         print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
 
         # Accumulate TP, FP, FN
@@ -467,19 +463,24 @@ if __name__ == '__main__':
         print('Number of ground truth bounding boxes: ', object_count)
         print('Number of predicted bounding boxes: ', len(boxes_1)) 
         
-
-        Detailed = False
-        if (Detailed == True):
+        # Show the details of the predicted bounding boxes
+        if (args.detail == True):
             print('Details of predicted bounding boxes: (Class Code + bounding boxes)')
             for i in range(len(boxes_1)):
                 print(classes[i], boxes_1[i])
 
-        count += 1
-
     # Print Global TP, FP, FN
     print('----------------------------------------------------------------------')
-    print('Global Metrics:')
-    print('Global TP:{} Global FP:{} Global FN:{}'.format(Global_TP, Global_FP, Global_FN))
+    print('Confusion Matrix:')
+    print('True Positive TP:{}  |  False Positive FP:{}'.format(Global_TP, Global_FP))
+    print('False Negative FN:{}'.format(Global_FN))
+
+    # Compute Precision, Recall, F1-score
+    Precision = Global_TP / (Global_TP + Global_FP)
+    Recall = Global_TP / (Global_TP + Global_FN)
+    F1_score = 2 * Precision * Recall / (Precision + Recall)
+
+    print('Precision:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
 
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')
@@ -489,7 +490,7 @@ if __name__ == '__main__':
     print('Starting to compute mAP ...')
 
     # Compute mAP
-    # Evaluate_AP(model, args)
+    Evaluate_AP(model, args)
 
     # Compute mAP50 for each class
     AP = Evaluate_AP_EachClass(model, args)
