@@ -35,7 +35,7 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--detail', default=False, type=bool)
+    parser.add_argument('--detail', default=False, type=bool, help='Show detail bounding boxes of each image')
     parser.add_argument('--lr_drop', default=50, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
@@ -155,8 +155,10 @@ def Evaluate_AP_EachClass(model, args):
 
     G_mAP = []
     for CatID in CatIDs:
+        print("Evaluate AP for class: ", CatID)
         test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
         G_mAP.append(test_stats["coco_eval_bbox"][1]) # Get the mAP50 of the current class
+        print('------------------------------------------------------------------------------------------')
 
     return G_mAP
 
@@ -405,9 +407,9 @@ if __name__ == '__main__':
     # Show the command line arguments
     print("Command line:")
     # Print the command line arguments
-    print('python final_evaluate.py --resume' + args.resume + ' --batch_size ' + str(args.batch_size) \
-        + ' --num_classes ' + str(args.num_classes)+ ' --coco_path ' + args.coco_path)
-    print('----------------------------------------------------------------------------')
+    print('python final_evaluate.py --resume ' + args.resume + ' --batch_size ' + str(args.batch_size) \
+        + ' --num_classes ' + str(args.num_classes)+ ' --coco_path ' + args.coco_path + ' --detail ' + str(args.detail))
+    print('------------------------------------------------------------------------------------------')
 
     print("Start time: ", datetime.datetime.now())
 
@@ -498,3 +500,4 @@ if __name__ == '__main__':
     # Print mAP
     print('-------------------------------------------------------------------------------')
     print('AP50 for each class: ', AP)
+    print("Time complete computing AP: ", datetime.datetime.now())
