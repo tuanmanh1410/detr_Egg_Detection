@@ -251,6 +251,8 @@ def Select_Bounding_Boxes(probas, bboxes_scaled):
     # Delete bounding boxes having index in index_remove
     # Sort index_remove in descending order to avoid out of range error
     index_remove.sort(reverse=True)
+    # remove duplicate index
+    index_remove = list(dict.fromkeys(index_remove))
     for i in index_remove:
         del bboxes_scaled[i]
         del probas[i]
@@ -326,8 +328,17 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
                 if class_code[i] == class_code_GT[j]:
                     TP += 1
-                else:
-                    FP += 1
+    # TP is not greater than the number of objects in the image
+    if (len(bboxes_scaled) < object_count):
+        temp = len(bboxes_scaled)
+    else:
+        temp = object_count
+
+    if TP > temp:
+        TP = temp
+
+    # Compute FP
+    FP = len(bboxes_scaled) - TP
             
     # Compute FN
     FN = object_count - TP
