@@ -150,7 +150,10 @@ def Evaluate_AP_EachClass(model, args):
     model = model.to(args.device)
 
     # Hard code here
-    CatIDs = [1,2,3,4,5,6,7]
+    if (args.num_classes == 6):
+        CatIDs = [1,2,3,4,5,6]
+    else:
+        CatIDs = [1,2,3,4,5]
     # End hard code
 
     G_mAP = []
@@ -321,13 +324,17 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
 
     # Convert the bounding boxes to list
     bboxes_scaled = bboxes_scaled.tolist()
-
+    # Debug 
+    count = 0
     # Start compute TP, FP, FN
     for i in range(len(bboxes_scaled)):
         for j in range(len(Bbox_GT)):
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
+                count += 1
                 if class_code[i] == class_code_GT[j]:
                     TP += 1
+    
+    print("count = ", count)
     # TP is not greater than the number of objects in the image
     if (len(bboxes_scaled) < object_count):
         temp = len(bboxes_scaled)
@@ -459,7 +466,7 @@ if __name__ == '__main__':
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
         #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
-        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5)
+        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.7)
 
         # Print TP, FP, FN in one line
         print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
@@ -493,7 +500,7 @@ if __name__ == '__main__':
     Recall = Global_TP / (Global_TP + Global_FN)
     F1_score = 2 * Precision * Recall / (Precision + Recall)
 
-    print('Precision:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
+    print('Preiscion:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
 
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')

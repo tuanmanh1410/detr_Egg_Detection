@@ -38,9 +38,9 @@ def GetAPValue(filepath = 'log.txt'):
 if __name__ == '__main__':
     #Read context from log.txt
     #data = ReadContext(filepath = 'outputs/log.txt')
-    mAP50, mAP = GetAPValue(filepath = 'outputs_COLOR_1210/log.txt')
+    mAP50, mAP = GetAPValue(filepath = 'outputs_color/log.txt')
     # Save epoch, mAP50 and mAP to a csv file
-    with open('outputs/plot.csv', 'w') as f:
+    with open('outputs/DETR_mAP_COLOR.csv', 'w') as f:
         for i in range(len(mAP50)):
             f.write(str(i) + ',' + str(mAP50[i]) + ',' + str(mAP[i]) + '\r')
 
