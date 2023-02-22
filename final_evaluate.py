@@ -473,9 +473,15 @@ if __name__ == '__main__':
         print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
         for i in range(1, args.num_classes+1):
             if TP[i] + FP[i] == 0 and TP[i] + FN[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                if CUM_Samples[i] == 0:
+                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t-\t|')
+                else:
+                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t{AVG_PRECISION[i]:.3f}\t|')
             elif TP[i] + FP[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                if CUM_Samples[i] == 0:
+                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t-\t|')
+                else:
+                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
             elif TP[i] + FN[i] == 0:
                 CUM_Samples[i] += 1
                 PRECISION = TP[i]/(TP[i]+FP[i])
@@ -491,7 +497,8 @@ if __name__ == '__main__':
             Global_TP[i] += TP[i]
             Global_FP[i] += FP[i]
             Global_FN[i] += FN[i]
-            mAP += AVG_PRECISION[i]
+            if CUM_Samples[i] != 0:
+                mAP += AVG_PRECISION[i]
         
         # compute num_classes (only observed so far)
         num_classes=0
@@ -526,7 +533,10 @@ if __name__ == '__main__':
     print('Confusion Matrix:')
     print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|\tAP\t|')
     for i in range(1, args.num_classes+1):
-        print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+        if CUM_Samples[i] != 0:
+            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+        else:
+            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t-\t|')
         mAP += AVG_PRECISION[i]
     mAP = mAP / args.num_classes
     print('# mAP : ', mAP)
