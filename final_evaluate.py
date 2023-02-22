@@ -444,8 +444,9 @@ if __name__ == '__main__':
     CUM_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
     AVG_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
     CUM_Samples = {cl+1: 0 for cl in range(args.num_classes)}
+    total_num_tests = len(test_images)
 
-    for image in test_images:
+    for n, image in enumerate(test_images):
         img = Image.open(image)
         # Replace the path of the image with the path of the xml file
         xml_file = image.replace('jpg', 'xml')
@@ -457,7 +458,7 @@ if __name__ == '__main__':
         boxes = []
         
         print('======================================================================')
-        print('Image: ', image)
+        print(f'[{n+1}/{total_num_tests}] Image: ', image)
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
@@ -472,9 +473,9 @@ if __name__ == '__main__':
         print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
         for i in range(1, args.num_classes+1):
             if TP[i] + FP[i] == 0 and TP[i] + FN[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{0}\t|\t{0}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t{AVG_PRECISION[i]:.3f}\t|')
             elif TP[i] + FP[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{0}\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
             elif TP[i] + FN[i] == 0:
                 CUM_Samples[i] += 1
                 PRECISION = TP[i]/(TP[i]+FP[i])
