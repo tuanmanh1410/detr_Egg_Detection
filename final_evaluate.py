@@ -313,11 +313,12 @@ def Get_IoU(bbox1, bbox2):
     return iou
 
 # Get the TP, FP, FN for each image following the IoU threshold
-def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT, IOU_threshold):
+def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT, IOU_threshold, num_classes):
     # Initialize TP, FP, FN
-    TP = 0
-    FP = 0
-    FN = 0
+    TP = {cl+1: 0 for cl in range(num_classes)}
+    FP = {cl+1: 0 for cl in range(num_classes)}
+    FN = {cl+1: 0 for cl in range(num_classes)}
+    GT = {cl+1: 0 for cl in range(num_classes)}
 
     # Get the class code of the bounding box
     class_code = Get_ClassCode(probas)
@@ -332,24 +333,16 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
                 count += 1
                 if class_code[i] == class_code_GT[j]:
-                    TP += 1
+                    TP[class_code[i]] += 1
+                else:
+                    FP[class_code[i]] += 1
+
+    for i in range(len(Bbox_GT)):
+        GT[class_code_GT[i]] += 1
     
-    print("count = ", count)
-    # TP is not greater than the number of objects in the image
-    if (len(bboxes_scaled) < object_count):
-        temp = len(bboxes_scaled)
-    else:
-        temp = object_count
-
-    if TP > temp:
-        TP = temp
-
-    # Compute FP
-    FP = len(bboxes_scaled) - TP
-            
-    # Compute FN
-    FN = object_count - TP
-
+    for i in range(1, num_classes+1):
+        FN[i] = GT[i] - TP[i]
+    
     return TP, FP, FN
             
 
@@ -445,9 +438,12 @@ if __name__ == '__main__':
     test_images = collect_all_images(DIR_TEST)
 
     # Initialize Global TP, FP, FN
-    Global_TP = 0
-    Global_FP = 0
-    Global_FN = 0
+    Global_TP = {cl+1: 0 for cl in range(args.num_classes)}
+    Global_FP = {cl+1: 0 for cl in range(args.num_classes)}
+    Global_FN = {cl+1: 0 for cl in range(args.num_classes)}
+    CUM_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
+    AVG_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
+    CUM_Samples = {cl+1: 0 for cl in range(args.num_classes)}
 
     for image in test_images:
         img = Image.open(image)
@@ -460,27 +456,59 @@ if __name__ == '__main__':
         scores = []
         boxes = []
         
-        print('----------------------------------------------------------------------')
+        print('======================================================================')
         print('Image: ', image)
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
         #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
-        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.7)
+        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.7, num_classes=args.num_classes)
+        mAP = 0
 
         # Print TP, FP, FN in one line
-        print('TP:{} FP:{} FN:{}'.format(TP, FP, FN))
+        print('----------------------------------------------------------------------')
+        print('Confusion Matrix for this Image')
+        print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|\tAP\t|')
+        print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
+        for i in range(1, args.num_classes+1):
+            if TP[i] + FP[i] == 0 and TP[i] + FN[i] == 0:
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{0}\t|\t{0}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+            elif TP[i] + FP[i] == 0:
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{0}\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+            elif TP[i] + FN[i] == 0:
+                CUM_Samples[i] += 1
+                PRECISION = TP[i]/(TP[i]+FP[i])
+                CUM_PRECISION[i] += PRECISION
+                AVG_PRECISION[i] = CUM_PRECISION[i] / CUM_Samples[i]
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{0}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+            else:
+                CUM_Samples[i] += 1
+                PRECISION = TP[i]/(TP[i]+FP[i])
+                CUM_PRECISION[i] += PRECISION
+                AVG_PRECISION[i] = CUM_PRECISION[i] / CUM_Samples[i]
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+            Global_TP[i] += TP[i]
+            Global_FP[i] += FP[i]
+            Global_FN[i] += FN[i]
+            mAP += AVG_PRECISION[i]
+        
+        # compute num_classes (only observed so far)
+        num_classes=0
+        for i in range(1, args.num_classes+1):
+            if CUM_Samples[i] != 0:
+                num_classes += 1
+        mAP = mAP / num_classes
+        print('# mAP until this sample: ', mAP)
+        print('----------------------------------------------------------------------')
 
-        # Accumulate TP, FP, FN
-        Global_TP += TP
-        Global_FP += FP
-        Global_FN += FN
 
         # Get the class of the bounding box
         classes = Get_ClassCode(scores_1)
 
-        #print(boxes_1)
         print('Number of ground truth bounding boxes: ', object_count)
+        print("The details of the ground truth bounding boxes: (Class Code + bounding boxes)")
+        for i in range(len(Bbox_GT)):
+            print(class_code_GT[i], Bbox_GT[i])
         print('Number of predicted bounding boxes: ', len(boxes_1)) 
         
         # Show the details of the predicted bounding boxes
@@ -488,19 +516,25 @@ if __name__ == '__main__':
             print('Details of predicted bounding boxes: (Class Code + bounding boxes)')
             for i in range(len(boxes_1)):
                 print(classes[i], boxes_1[i])
+        
 
+        
     # Print Global TP, FP, FN
+    mAP = 0
     print('----------------------------------------------------------------------')
     print('Confusion Matrix:')
-    print('True Positive TP:{}  |  False Positive FP:{}'.format(Global_TP, Global_FP))
-    print('False Negative FN:{}'.format(Global_FN))
+    print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|\tAP\t|')
+    for i in range(1, args.num_classes+1):
+        print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+        mAP += AVG_PRECISION[i]
+    mAP = mAP / args.num_classes
+    print('# mAP : ', mAP)
 
     # Compute Precision, Recall, F1-score
-    Precision = Global_TP / (Global_TP + Global_FP)
-    Recall = Global_TP / (Global_TP + Global_FN)
-    F1_score = 2 * Precision * Recall / (Precision + Recall)
-
-    print('Preiscion:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
+    # Precision = Global_TP / (Global_TP + Global_FP)
+    # Recall = Global_TP / (Global_TP + Global_FN)
+    # F1_score = 2 * Precision * Recall / (Precision + Recall)
+    # print('Preiscion:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
 
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')
