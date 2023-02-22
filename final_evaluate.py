@@ -325,16 +325,13 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
     # Convert the bounding boxes to list
     bboxes_scaled = bboxes_scaled.tolist()
     # Debug 
-    count = 0
     # Start compute TP, FP, FN
     for i in range(len(bboxes_scaled)):
         for j in range(len(Bbox_GT)):
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
-                count += 1
                 if class_code[i] == class_code_GT[j]:
                     TP += 1
     
-    print("count = ", count)
     # TP is not greater than the number of objects in the image
     if (len(bboxes_scaled) < object_count):
         temp = len(bboxes_scaled)
@@ -481,6 +478,9 @@ if __name__ == '__main__':
 
         #print(boxes_1)
         print('Number of ground truth bounding boxes: ', object_count)
+        print("The details of the ground truth bounding boxes: (Class Code + bounding boxes)")
+        for i in range(len(Bbox_GT)):
+            print(class_code_GT[i], Bbox_GT[i])
         print('Number of predicted bounding boxes: ', len(boxes_1)) 
         
         # Show the details of the predicted bounding boxes
