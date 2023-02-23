@@ -326,16 +326,15 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
     # Convert the bounding boxes to list
     bboxes_scaled = bboxes_scaled.tolist()
     # Debug 
-    count = 0
     # Start compute TP, FP, FN
     for i in range(len(bboxes_scaled)):
         for j in range(len(Bbox_GT)):
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
-                count += 1
                 if class_code[i] == class_code_GT[j]:
                     TP[class_code[i]] += 1
                 else:
                     FP[class_code[i]] += 1
+
 
     for i in range(len(Bbox_GT)):
         GT[class_code_GT[i]] += 1
