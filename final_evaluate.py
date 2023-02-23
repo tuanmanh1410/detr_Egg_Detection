@@ -22,6 +22,8 @@ import matplotlib.pyplot as plt
 import os
 import glob
 import torchvision.transforms as T
+from sklearn.metrics import PrecisionRecallDisplay, average_precision_score
+from matplotlib import pyplot as plt
 
 
 # Library for read XML file
@@ -319,31 +321,66 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
     FP = {cl+1: 0 for cl in range(num_classes)}
     FN = {cl+1: 0 for cl in range(num_classes)}
     GT = {cl+1: 0 for cl in range(num_classes)}
+    gt_ = [ i for i in range(len(class_code_GT))]
 
     # Get the class code of the bounding box
     class_code = Get_ClassCode(probas)
 
     # Convert the bounding boxes to list
-    bboxes_scaled = bboxes_scaled.tolist()
-    # Debug 
+    # bboxes_scaled = bboxes_scaled.tolist()
+    bboxes_scaled = bboxes_scaled
     count = 0
+    match = {}
     # Start compute TP, FP, FN
     for i in range(len(bboxes_scaled)):
         for j in range(len(Bbox_GT)):
             if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
-                count += 1
+                # matched with j'th box
+                match[i] = j
+                if j in gt_:
+                    gt_.remove(j)
                 if class_code[i] == class_code_GT[j]:
+                    # correct detection
                     TP[class_code[i]] += 1
                 else:
+                    # detected but false
                     FP[class_code[i]] += 1
+                break
 
     for i in range(len(Bbox_GT)):
         GT[class_code_GT[i]] += 1
     
     for i in range(1, num_classes+1):
         FN[i] = GT[i] - TP[i]
+        count += FN[i]
     
-    return TP, FP, FN
+    # return y_hat, y_gt pair
+    y_gt = []
+    for i in range(len(bboxes_scaled)):
+        one_hot_vector = [0] * num_classes
+        if i in match.keys():
+            j = match[i]
+            one_hot_vector[class_code_GT[j]-1] = 1
+        y_gt.append(one_hot_vector)
+    
+    return_probas = probas.detach().numpy().tolist()
+    return_probas = [] + return_probas
+    for j in gt_:
+        # add proba
+        zero_vector = [[0] * num_classes]
+        return_probas += zero_vector
+
+        # add False Negative value
+        one_hot_vector = [0] * num_classes
+        one_hot_vector[class_code_GT[j]-1] = 1
+        y_gt.append(one_hot_vector)
+    
+    if len(y_gt) < len(return_probas):
+        for _ in range(len(y_gt) - len(return_probas)):
+            zero_vector = [[0] * num_classes]
+            return_probas += zero_vector
+    
+    return TP, FP, FN, return_probas, y_gt
             
 
 
@@ -441,9 +478,8 @@ if __name__ == '__main__':
     Global_TP = {cl+1: 0 for cl in range(args.num_classes)}
     Global_FP = {cl+1: 0 for cl in range(args.num_classes)}
     Global_FN = {cl+1: 0 for cl in range(args.num_classes)}
-    CUM_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
-    AVG_PRECISION = {cl+1: 0 for cl in range(args.num_classes)}
-    CUM_Samples = {cl+1: 0 for cl in range(args.num_classes)}
+    Global_Y_True = []
+    Global_Y_Score = []
     total_num_tests = len(test_images)
 
     for n, image in enumerate(test_images):
@@ -462,91 +498,80 @@ if __name__ == '__main__':
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
-        #TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
-        TP, FP, FN = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.7, num_classes=args.num_classes)
-        mAP = 0
+        # TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
+        TP, FP, FN, y_score, y_true = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=args.num_classes)
+        Global_Y_Score += y_score
+        Global_Y_True += y_true
 
         # Print TP, FP, FN in one line
         print('----------------------------------------------------------------------')
-        print('Confusion Matrix for this Image')
-        print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|\tAP\t|')
-        print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
+        print(f'Confusion Matrix for this Image')
+        print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|')
+        print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         for i in range(1, args.num_classes+1):
             if TP[i] + FP[i] == 0 and TP[i] + FN[i] == 0:
-                if CUM_Samples[i] == 0:
-                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t-\t|')
-                else:
-                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|')
             elif TP[i] + FP[i] == 0:
-                if CUM_Samples[i] == 0:
-                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t-\t|')
-                else:
-                    print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|')
             elif TP[i] + FN[i] == 0:
-                CUM_Samples[i] += 1
                 PRECISION = TP[i]/(TP[i]+FP[i])
-                CUM_PRECISION[i] += PRECISION
-                AVG_PRECISION[i] = CUM_PRECISION[i] / CUM_Samples[i]
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{0}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t-\t|')
             else:
-                CUM_Samples[i] += 1
                 PRECISION = TP[i]/(TP[i]+FP[i])
-                CUM_PRECISION[i] += PRECISION
-                AVG_PRECISION[i] = CUM_PRECISION[i] / CUM_Samples[i]
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|\t{AVG_PRECISION[i]:.3f}\t|')
+                RECALL = TP[i]/(TP[i]+FN[i]) 
+                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|')
+
             Global_TP[i] += TP[i]
             Global_FP[i] += FP[i]
             Global_FN[i] += FN[i]
-            if CUM_Samples[i] != 0:
-                mAP += AVG_PRECISION[i]
         
-        # compute num_classes (only observed so far)
-        num_classes=0
-        for i in range(1, args.num_classes+1):
-            if CUM_Samples[i] != 0:
-                num_classes += 1
-        mAP = mAP / num_classes
-        print('# mAP until this sample: ', mAP)
         print('----------------------------------------------------------------------')
 
-
         # Get the class of the bounding box
-        classes = Get_ClassCode(scores_1)
+        # classes = Get_ClassCode(scores_1)
+        classes = Get_ClassCode(scores)
 
         print('Number of ground truth bounding boxes: ', object_count)
         print("The details of the ground truth bounding boxes: (Class Code + bounding boxes)")
         for i in range(len(Bbox_GT)):
             print(class_code_GT[i], Bbox_GT[i])
-        print('Number of predicted bounding boxes: ', len(boxes_1)) 
+
+        print('Number of predicted bounding boxes: ', len(boxes)) 
         
         # Show the details of the predicted bounding boxes
         if (args.detail == True):
             print('Details of predicted bounding boxes: (Class Code + bounding boxes)')
-            for i in range(len(boxes_1)):
-                print(classes[i], boxes_1[i])
+            for i in range(len(boxes)):
+                print(classes[i], boxes[i].detach().numpy().tolist())
         
+    Global_Y_Score = np.array(Global_Y_Score)
+    Global_Y_True = np.array(Global_Y_True)
 
-        
     # Print Global TP, FP, FN
-    mAP = 0
     print('----------------------------------------------------------------------')
-    print('Confusion Matrix:')
-    print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|\tAP\t|')
+    print(f'Global Confusion Matrix at threshold')
+    print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|')
     for i in range(1, args.num_classes+1):
-        if CUM_Samples[i] != 0:
-            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{AVG_PRECISION[i]:.3f}\t|')
-        else:
-            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t-\t|')
-        mAP += AVG_PRECISION[i]
-    mAP = mAP / args.num_classes
-    print('# mAP : ', mAP)
+        print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|')
+    print('----------------------------------------------------------------------')
+
+    print('Create PRECISION-RECALL curve plot...')
+    for i in range(1, args.num_classes+1):
+        print(f"Start to draw the curve for class {i}... in ./PRECISION_RECALL_CLASS_{i}.png")
+        display = PrecisionRecallDisplay.from_predictions(Global_Y_True[:,i-1], Global_Y_Score[:,i-1], name="LinearSVC")
+        display.ax_.set_title("2-class Precision-Recall curve")
+        plt.show()
+        plt.savefig(f'../PRECISION_RECALL_CLASS_{i}.png', bbox_inches='tight')
+        average_precision = average_precision_score(Global_Y_True[:,i-1], Global_Y_Score[:,i-1])
+        print(f"Average Precision @ Class {i} : {average_precision:.3f}")
+    print('----------------------------------------------------------------------')
+
 
     # Compute Precision, Recall, F1-score
     # Precision = Global_TP / (Global_TP + Global_FP)
     # Recall = Global_TP / (Global_TP + Global_FN)
     # F1_score = 2 * Precision * Recall / (Precision + Recall)
     # print('Preiscion:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
-
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')
     print('Finish counting bounding boxes!!')
@@ -558,9 +583,9 @@ if __name__ == '__main__':
     Evaluate_AP(model, args)
 
     # Compute mAP50 for each class
-    AP = Evaluate_AP_EachClass(model, args)
+    # AP = Evaluate_AP_EachClass(model, args)
 
     # Print mAP
     print('-------------------------------------------------------------------------------')
     print('AP50 for each class: ', AP)
-    print("Time complete computing AP: ", datetime.datetime.now())
+    # print("Time complete computing AP: ", datetime.datetime.now())
