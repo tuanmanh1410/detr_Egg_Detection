@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<annotation>
+  <category>1</category>
+  <regional_code>37380</regional_code>
+  <varieties>1</varieties>
+  <wash>1</wash>
+  <classification>1</classification>
+  <days>235</days>
+  <type>2</type>
+  <create_date>2022-10-07</create_date>
+  <date>2022-10-07 13:00:00</date>
+  <temperature>21</temperature>
+  <humidity>36</humidity>
+  <file_name>20221007-08333.jpg</file_name>
+  <fresh_day>0</fresh_day>
+  <breeding_env>4</breeding_env>
+  <size>
+    <width>1440</width>
+    <height>1080</height>
+  </size>
+  <object_count>1</object_count>
+  <bndbox>
+    <seq>1</seq>
+    <object>7484018</object>
+    <state>4</state>
+    <state_detail>0</state_detail>
+    <x_min>926.9750366210938</x_min>
+    <y_min>373.468994140625</y_min>
+    <x_max>1148.2880859375</x_max>
+    <y_max>647.90673828125</y_max>
+  </bndbox>
+</annotation>
