@@ -167,7 +167,6 @@ def Evaluate_AP_EachClass(model, args):
 
     return G_mAP
 
-#**************Inference Phase***************#
 
 # Preprocess image - Get list of images
 def collect_all_images(dir_test):
@@ -355,86 +354,32 @@ def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_
         FN[i] = GT[i] - TP[i]
         count += FN[i]
     
-    # return y_hat, y_gt pair
+    # return y_hat, y_gt pair (find matched hat and ground truth)
     y_gt = []
+    y_hat = []
     for i in range(len(bboxes_scaled)):
-        one_hot_vector = [0] * num_classes
+        one_hot_vector = [0] * num_classes # ground truth one hot encoding
+        hat_vector = [0] * num_classes # only matched one is 'Positive' (remaining class's confidence = 0 (by IoU filtering))
         if i in match.keys():
             j = match[i]
             one_hot_vector[class_code_GT[j]-1] = 1
-        y_gt.append(one_hot_vector)
+            hat_vector[class_code[i]-1] = probas[i][class_code[i]].item()
+            y_gt.append(one_hot_vector)
+            y_hat.append(hat_vector)
     
-    return_probas = probas.detach().numpy().tolist()
-    return_probas = [] + return_probas
     for j in gt_:
-        # add proba
-        zero_vector = [[0] * num_classes]
-        return_probas += zero_vector
+        # add proba False Negative (not predicted)
+        zero_vector = [0] * num_classes
+        y_hat.append(zero_vector)
 
         # add False Negative value
         one_hot_vector = [0] * num_classes
         one_hot_vector[class_code_GT[j]-1] = 1
         y_gt.append(one_hot_vector)
     
-    if len(y_gt) < len(return_probas):
-        for _ in range(len(y_gt) - len(return_probas)):
-            zero_vector = [[0] * num_classes]
-            return_probas += zero_vector
     
-    return TP, FP, FN, return_probas, y_gt
+    return TP, FP, FN, y_hat, y_gt
             
-
-
-# Get the TP, FP, FN for each image following the distance of the center coordinates
-def Get_TP_FP_FN(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT):
-        # Bboxes_scaled and probas are kept before removing overlapping bounding boxes
-        # BBox_GT is the ground truth bounding box along with the class code
-        # object_count is the number of objects in the image from the ground truth bounding box
-
-        # Initialize TP, FP, FN
-        TP = 0
-        FP = 0
-        FN = 0
-    
-        # Get the class code of the bounding box
-        class_code = Get_ClassCode(probas)
-    
-        # Get the center coordinates of the bounding box
-        center_x = (bboxes_scaled[:, 0] + bboxes_scaled[:, 2]) / 2
-        center_y = (bboxes_scaled[:, 1] + bboxes_scaled[:, 3]) / 2
-    
-        # Combine center_x and center_y to get the center coordinates
-        center = torch.stack((center_x, center_y), dim=1)
-        center = center.tolist()
-    
-        # Get the center coordinates of the ground truth bounding box
-        # BBbox_GT is a list of bounding boxes
-        # Convert Bbox_GT to tensor
-        Bbox_GT = torch.tensor(Bbox_GT)
-        center_x_GT = (Bbox_GT[:, 0] + Bbox_GT[:, 2]) / 2
-        center_y_GT = (Bbox_GT[:, 1] + Bbox_GT[:, 3]) / 2
-    
-        # Combine center_x and center_y to get the center coordinates
-        center_GT = torch.stack((center_x_GT, center_y_GT), dim=1)
-        center_GT = center_GT.tolist()
-    
-        # Get the TP, FP, FN
-        # Can check IoU of 2 bounding boxes as the condition to compare
-
-        for i in range(len(center)):
-            for j in range(len(center_GT)):
-                dist = distance(center[i], center_GT[j])
-                if dist < 40:
-                    if class_code[i] == class_code_GT[j]:
-                        TP += 1
-                        break
-                    else:
-                        FP += 1
-                        break
-    
-        FN = object_count - TP
-
-        return TP, FP, FN
 
 def Get_ClassCode(scores):
     # scores is a tensor
@@ -499,14 +444,12 @@ if __name__ == '__main__':
         scores, boxes = detect(img, model, transform)
         scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
         # Compute TP, FP, FN
-        # TP, FP, FN = Get_TP_FP_FN(boxes, scores, object_count, Bbox_GT, class_code_GT)
         TP, FP, FN, y_score, y_true = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=args.num_classes)
         Global_Y_Score += y_score
         Global_Y_True += y_true
 
         # Print TP, FP, FN in one line
-        print('----------------------------------------------------------------------')
-        print(f'Confusion Matrix for this Image')
+        print(f'<Confusion Matrix for this Image>')
         print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|')
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         for i in range(1, args.num_classes+1):
@@ -532,6 +475,7 @@ if __name__ == '__main__':
         # classes = Get_ClassCode(scores_1)
         classes = Get_ClassCode(scores)
 
+        print('<Bounding box details>')
         print('Number of ground truth bounding boxes: ', object_count)
         print("The details of the ground truth bounding boxes: (Class Code + bounding boxes)")
         for i in range(len(Bbox_GT)):
@@ -545,18 +489,29 @@ if __name__ == '__main__':
             for i in range(len(boxes)):
                 print(classes[i], boxes[i].detach().numpy().tolist())
         
+        if n == 50:
+            break
+        
     Global_Y_Score = np.array(Global_Y_Score)
     Global_Y_True = np.array(Global_Y_True)
 
     # Print Global TP, FP, FN
     print('----------------------------------------------------------------------')
     print(f'Global Confusion Matrix at threshold')
-    print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|')
+    print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|    F1-score   |')
+    print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
     for i in range(1, args.num_classes+1):
-        print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|')
+        if Global_TP[i] + Global_FP[i] != 0:
+            PRECISION = Global_TP[i]/(Global_TP[i]+Global_FP[i])
+            RECALL = Global_TP[i]/(Global_TP[i]+Global_FN[i]) 
+            F1_score = 2 * PRECISION * RECALL / (PRECISION + RECALL)
+            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|\t{F1_score:.3f}\t|')
+        else:
+            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t-\t|\t-\t|\t-\t|')
     print('----------------------------------------------------------------------')
 
     print('Create PRECISION-RECALL curve plot...')
+    mAP = 0
     for i in range(1, args.num_classes+1):
         print(f"Start to draw the curve for class {i}... in ./PRECISION_RECALL_CLASS_{i}.png")
         display = PrecisionRecallDisplay.from_predictions(Global_Y_True[:,i-1], Global_Y_Score[:,i-1], name="LinearSVC")
@@ -565,28 +520,25 @@ if __name__ == '__main__':
         plt.savefig(f'../PRECISION_RECALL_CLASS_{i}.png', bbox_inches='tight')
         average_precision = average_precision_score(Global_Y_True[:,i-1], Global_Y_Score[:,i-1])
         print(f"Average Precision @ Class {i} : {average_precision:.3f}")
+        mAP += average_precision
+    mAP = mAP / args.num_classes
+    print(f"mAP@0.5 : {mAP:.3f}")
     print('----------------------------------------------------------------------')
 
 
     # Compute Precision, Recall, F1-score
-    # Precision = Global_TP / (Global_TP + Global_FP)
-    # Recall = Global_TP / (Global_TP + Global_FN)
-    # F1_score = 2 * Precision * Recall / (Precision + Recall)
-    # print('Preiscion:{} | Recall:{} | F1-score:{}'.format(Precision, Recall, F1_score))
     # Finish counting bounding boxes
     print('----------------------------------------------------------------------')
     print('Finish counting bounding boxes!!')
     print("Time complete counting bounding boxes: ", datetime.datetime.now())
     print('----------------------------------------------------------------------')
-    print('Starting to compute mAP ...')
+    print('Starting to compute mAP via COCO-API ...')
 
     # Compute mAP
-    Evaluate_AP(model, args)
-
-    # Compute mAP50 for each class
-    # AP = Evaluate_AP_EachClass(model, args)
+    AP = Evaluate_AP(model, args)
 
     # Print mAP
     print('-------------------------------------------------------------------------------')
-    print('AP50 for each class: ', AP)
-    # print("Time complete computing AP: ", datetime.datetime.now())
+    print('Evaluation result')
+    print(AP)
+    print("Time complete computing AP: ", datetime.datetime.now())
