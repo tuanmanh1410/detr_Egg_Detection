@@ -73,8 +73,8 @@ def main(source_dir, target_dir):
 
 if __name__ == "__main__":
     # Get the source directory
-    source_dir = "/hdd/ttmanh/detr_Egg_Detection/Bbox_Images"
+    source_dir = "/SSD1/ttmanh/kkokkobot_Detection/detr_Egg_Detection/Final_Demo_COLOR/"
     # Get the target directory
-    target_dir = "/hdd/ttmanh/detr_Egg_Detection/Bbox_Images/Demo"
+    target_dir = "/SSD1/ttmanh/kkokkobot_Detection/detr_Egg_Detection/Final_Demo_COLOR_bbox/"
     # Call the main function
     main(source_dir, target_dir)
