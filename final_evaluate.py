@@ -117,56 +117,20 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     return parser
 
-# Function to evaluate the model by computing the mAP score
+# Function to evaluate the model by computing the mAP score (COCO-API)
 def Evaluate_AP(model, args):
 
     dataset_test = build_dataset(image_set='test', args=args)
     sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-
     data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
                                     drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
 
-
     # Evaluate
     base_ds = get_coco_api_from_dataset(dataset_test)
-
     model = model.to(args.device)
-
     test_stats, coco_evaluator = evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir)
 
     return test_stats
-
-
-def Evaluate_AP_EachClass(model, args):
-
-    dataset_test = build_dataset(image_set='test', args=args)
-    sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-
-    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
-                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=2)
-
-
-    # Evaluate
-    base_ds = get_coco_api_from_dataset(dataset_test)
-
-    model = model.to(args.device)
-
-    # Hard code here
-    if (args.num_classes == 6):
-        CatIDs = [1,2,3,4,5,6]
-    else:
-        CatIDs = [1,2,3,4,5]
-    # End hard code
-
-    G_mAP = []
-    for CatID in CatIDs:
-        print("Evaluate AP for class: ", CatID)
-        test_stats, coco_evaluator = tta_evaluate(model, criterion, postprocessors, data_loader_test, base_ds, args.device, args.output_dir, CatID)
-        G_mAP.append(test_stats["coco_eval_bbox"][1]) # Get the mAP50 of the current class
-        print('------------------------------------------------------------------------------------------')
-
-    return G_mAP
-
 
 # Preprocess image - Get list of images
 def collect_all_images(dir_test):
@@ -226,44 +190,6 @@ def detect(im, model, transform):
 def distance(x, y):
     return ((x[0] - y[0])**2 + (x[1] - y[1])**2)**0.5
 
-def Select_Bounding_Boxes(probas, bboxes_scaled):
-
-    # Finding the center coordinates of the bounding box
-    center_x = (bboxes_scaled[:, 0] + bboxes_scaled[:, 2]) / 2
-    center_y = (bboxes_scaled[:, 1] + bboxes_scaled[:, 3]) / 2
-
-    # Combine center_x and center_y to get the center coordinates
-    center = torch.stack((center_x, center_y), dim=1)
-    center = center.tolist()
-
-    # Remove the center coordinates that are too close to each other
-    dist = 0
-    index_remove = []
-    for i in range(len(center)):
-        for j in range(i + 1, len(center)):
-            dist = distance(center[i], center[j])
-            if dist < 50:
-                # Remove the center with the lower confidence
-                if probas[i].max() > probas[j].max():
-                    index_remove.append(j)
-                else:
-                    index_remove.append(i)
-
-    bboxes_scaled = bboxes_scaled.tolist()
-    probas = probas.tolist()
-
-    # Delete bounding boxes having index in index_remove
-    # Sort index_remove in descending order to avoid out of range error
-    index_remove.sort(reverse=True)
-    # remove duplicate index
-    index_remove = list(dict.fromkeys(index_remove))
-    for i in index_remove:
-        del bboxes_scaled[i]
-        del probas[i]
-    
-    # Convert list to tensor
-    probas = torch.tensor(probas)
-    return probas, bboxes_scaled
 
 def Get_GroundTruth_Bounding_Boxes(file_name):
     # Get information from the xml file
@@ -287,99 +213,147 @@ def Get_GroundTruth_Bounding_Boxes(file_name):
     
     return object_count, Bbox_GT, class_code_GT
 
+def compute_overlap(boxes, query_boxes):
+    """
+    Args
+        a: (N, 4) ndarray of float
+        b: (K, 4) ndarray of float
+    Returns
+        overlaps: (N, K) ndarray of overlap between boxes and query_boxes
+    """
+    N = boxes.shape[0]
+    K = query_boxes.shape[0]
+    overlaps = np.zeros((N, K), dtype=np.float64)
+    for k in range(K):
+        box_area = (
+            (query_boxes[k, 2] - query_boxes[k, 0]) *
+            (query_boxes[k, 3] - query_boxes[k, 1])
+        )
+        for n in range(N):
+            iw = (
+                min(boxes[n, 2], query_boxes[k, 2]) -
+                max(boxes[n, 0], query_boxes[k, 0])
+            )
+            if iw > 0:
+                ih = (
+                    min(boxes[n, 3], query_boxes[k, 3]) -
+                    max(boxes[n, 1], query_boxes[k, 1])
+                )
+                if ih > 0:
+                    ua = np.float64(
+                        (boxes[n, 2] - boxes[n, 0]) *
+                        (boxes[n, 3] - boxes[n, 1]) +
+                        box_area - iw * ih
+                    )
+                    overlaps[n, k] = iw * ih / ua
+    return overlaps
 
-# Get the IoU between two bounding boxes
-def Get_IoU(bbox1, bbox2):
-    # bbox1 and bbox2 are two bounding boxes in the form of [xmin, ymin, xmax, ymax]
-    # Get the coordinates of the intersection rectangle
-    x_left = max(bbox1[0], bbox2[0])
-    y_top = max(bbox1[1], bbox2[1])
-    x_right = min(bbox1[2], bbox2[2])
-    y_bottom = min(bbox1[3], bbox2[3])
+def get_detections(bbox, scores, labels):
 
-    # Check if the two bounding boxes intersect
-    if x_right < x_left or y_bottom < y_top:
-        return 0.0
+    """
+     res = {label1: [[xmin, xmax, ymin, ymax, score], ...],
+             label2: [[xmin, xmax, ymin, ymax, score], ...]]}
+             labelC: [[xmin, xmax, ymin, ymax, score], ...]]}
+    """
 
-    # Calculate the area of intersection rectangle
-    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+    res = dict()
 
-    # Calculate the area of both bounding boxes
-    bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
-    bbox2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+    for i in range(len(bbox)):
+        label = labels[i]
+        if label not in res:
+            res[label] = []
+        box = bbox[i].detach().numpy().tolist() + [scores[i].item()]
+        res[label].append(box)
 
-    # Calculate the IoU
-    iou = intersection_area / float(bbox1_area + bbox2_area - intersection_area)
+    return res
 
-    return iou
+def get_annotations(bbox, labels):
+    """
+     res = {label1: [[xmin, xmax, ymin, ymax], ...],
+             label2: [[xmin, xmax, ymin, ymax], ...]]}
+             labelC: [[xmin, xmax, ymin, ymax], ...]]}
+    """
+
+    res = dict()
+
+    for i in range(len(bbox)):
+        label = labels[i]
+        if label not in res:
+            res[label] = []
+        box = bbox[i]
+        res[label].append(box)
+
+    return res
 
 # Get the TP, FP, FN for each image following the IoU threshold
-def Get_TP_FP_FN_byIoU(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT, IOU_threshold, num_classes):
+def evaluate_sample(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT, IOU_threshold, num_classes):
     # Initialize TP, FP, FN
-    TP = {cl+1: 0 for cl in range(num_classes)}
-    FP = {cl+1: 0 for cl in range(num_classes)}
+    TP = {cl+1: [] for cl in range(num_classes)}
+    FP = {cl+1: [] for cl in range(num_classes)}
     FN = {cl+1: 0 for cl in range(num_classes)}
-    GT = {cl+1: 0 for cl in range(num_classes)}
-    gt_ = [ i for i in range(len(class_code_GT))]
+    NUM_ANNOTATIONS = {cl+1: 0 for cl in range(num_classes)}
+    SCORES = {cl+1: [] for cl in range(num_classes)}
 
-    # Get the class code of the bounding box
-    class_code = Get_ClassCode(probas)
+    # Get the class code and its scores of the bounding box
+    class_code, class_score = Get_ClassCode_with_score(probas)
 
-    # Convert the bounding boxes to list
-    # bboxes_scaled = bboxes_scaled.tolist()
-    bboxes_scaled = bboxes_scaled
-    count = 0
-    match = {}
-    # Start compute TP, FP, FN
-    for i in range(len(bboxes_scaled)):
-        for j in range(len(Bbox_GT)):
-            if Get_IoU(bboxes_scaled[i], Bbox_GT[j]) > IOU_threshold:
-                # matched with j'th box
-                match[i] = j
-                if j in gt_:
-                    gt_.remove(j)
-                if class_code[i] == class_code_GT[j]:
-                    # correct detection
-                    TP[class_code[i]] += 1
-                else:
-                    # detected but false
-                    FP[class_code[i]] += 1
-                break
+    all_detections = get_detections(bboxes_scaled, class_score, class_code)
+    all_annotations = get_annotations(Bbox_GT, class_code_GT)
 
+    for label in range(1, num_classes+1):
 
-    for i in range(len(Bbox_GT)):
-        GT[class_code_GT[i]] += 1
-    
-    for i in range(1, num_classes+1):
-        FN[i] = GT[i] - TP[i]
-        count += FN[i]
-    
-    # return y_hat, y_gt pair (find matched hat and ground truth)
-    y_gt = []
-    y_hat = []
-    for i in range(len(bboxes_scaled)):
-        one_hot_vector = [0] * num_classes # ground truth one hot encoding
-        hat_vector = [0] * num_classes # only matched one is 'Positive' (remaining class's confidence = 0 (by IoU filtering))
-        if i in match.keys():
-            j = match[i]
-            one_hot_vector[class_code_GT[j]-1] = 1
-            hat_vector[class_code[i]-1] = probas[i][class_code[i]].item()
-            y_gt.append(one_hot_vector)
-            y_hat.append(hat_vector)
-    
-    for j in gt_:
-        # add proba False Negative (not predicted)
-        zero_vector = [0] * num_classes
-        y_hat.append(zero_vector)
+        num_annotations = 0.0
+        detections = []
+        annotations = []
 
-        # add False Negative value
-        one_hot_vector = [0] * num_classes
-        one_hot_vector[class_code_GT[j]-1] = 1
-        y_gt.append(one_hot_vector)
-    
-    
-    return TP, FP, FN, y_hat, y_gt
+        if label in all_detections:
+            detections = all_detections[label]
+        
+        if label in all_annotations:
+            annotations = all_annotations[label]
+        
+        if len(detections) == 0 and len(annotations) == 0:
+            continue
+        
+        NUM_ANNOTATIONS[label] = len(annotations)
+        detected_annotations = []
+
+        annotations = np.array(annotations, dtype=np.float64)
+        for d in detections:
+            SCORES[label].append(d[4])
+
+            if len(annotations) == 0:
+                FP[label].append(1)
+                TP[label].append(0)
+                continue
             
+            overlaps = compute_overlap(np.expand_dims(np.array(d, dtype=np.float64), axis=0), annotations)
+            assigned_annotation = np.argmax(overlaps, axis=1)
+            max_overlap = overlaps[0, assigned_annotation]
+
+            if max_overlap >= IOU_threshold and assigned_annotation not in detected_annotations:
+                FP[label].append(0)
+                TP[label].append(1)
+                detected_annotations.append(assigned_annotation)
+            else:
+                FP[label].append(1)
+                TP[label].append(0)
+        
+        FN[label] = NUM_ANNOTATIONS[label] - np.sum(TP[label])
+
+    return TP, FP, FN, NUM_ANNOTATIONS, SCORES
+
+            
+def Get_ClassCode_with_score(scores):
+    # scores is a tensor
+    class_code = []
+    class_scores = []
+    for p in scores:
+        cl = p.argmax()
+        cl = cl.tolist()
+        class_code.append(cl)
+        class_scores.append(p[cl])
+    return class_code, class_scores
 
 def Get_ClassCode(scores):
     # scores is a tensor
@@ -389,6 +363,58 @@ def Get_ClassCode(scores):
         cl = cl.tolist()
         class_code.append(cl)
     return class_code
+
+def compute_average_precision(TP, FP, SCORES, NUM_ANNOTATIONS):
+
+    false_positives = np.array(FP)
+    true_positives = np.array(TP)
+    scores = np.array(SCORES)
+    num_annotations = NUM_ANNOTATIONS
+
+    # sort by score
+    indices = np.argsort(-scores)
+    false_positives = false_positives[indices]
+    true_positives = true_positives[indices]
+
+    # compute false positive and true positives
+    false_positives = np.cumsum(false_positives)
+    true_positives = np.cumsum(true_positives)
+
+    # compute recall and precision
+    recall = true_positives / num_annotations
+    precision = true_positives / np.maximum(true_positives + false_positives, np.finfo(np.float64).eps)
+
+    # compute average precision
+    average_precision = _compute_ap(recall, precision)
+
+    return average_precision
+
+def _compute_ap(recall, precision):
+    """ Compute the average precision, given the recall and precision curves.
+    Code originally from https://github.com/rbgirshick/py-faster-rcnn.
+    # Arguments
+        recall:    The recall curve (list).
+        precision: The precision curve (list).
+    # Returns
+        The average precision as computed in py-faster-rcnn.
+    """
+    # correct AP calculation
+    # first append sentinel values at the end
+    mrec = np.concatenate(([0.], recall, [1.]))
+    mpre = np.concatenate(([0.], precision, [0.]))
+
+    # compute the precision envelope
+    for i in range(mpre.size - 1, 0, -1):
+        mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
+
+    # to calculate area under PR curve, look for points
+    # where X axis (recall) changes value
+    i = np.where(mrec[1:] != mrec[:-1])[0]
+
+    # and sum (\Delta recall) * prec
+    ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
+    return ap
+
 
 
 if __name__ == '__main__':
@@ -401,17 +427,19 @@ if __name__ == '__main__':
     # Show the command line arguments
     print("Command line:")
     # Print the command line arguments
-    print('python final_evaluate.py --resume ' + args.resume + ' --batch_size ' + str(args.batch_size) \
-        + ' --num_classes ' + str(args.num_classes)+ ' --coco_path ' + args.coco_path + ' --detail ' + str(args.detail))
+    print('python final_evaluate.py --resume ' + args.resume \
+           + ' --batch_size ' + str(args.batch_size) \
+           + ' --num_classes ' + str(args.num_classes) \
+           + ' --coco_path ' + args.coco_path \
+           + ' --detail ' + str(args.detail))
     print('------------------------------------------------------------------------------------------')
 
     print("Start time: ", datetime.datetime.now())
 
-    transform = T.Compose([
-    T.Resize(800),
-    T.ToTensor(),
-    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    transform = T.Compose([T.Resize(800),
+                           T.ToTensor(),
+                           T.Normalize([0.485, 0.456, 0.406], 
+                                       [0.229, 0.224, 0.225])])
 
     model, criterion, postprocessors = build_model(args)
     checkpoint = torch.load(args.resume, map_location='cpu')
@@ -421,11 +449,10 @@ if __name__ == '__main__':
     test_images = collect_all_images(DIR_TEST)
 
     # Initialize Global TP, FP, FN
-    Global_TP = {cl+1: 0 for cl in range(args.num_classes)}
-    Global_FP = {cl+1: 0 for cl in range(args.num_classes)}
-    Global_FN = {cl+1: 0 for cl in range(args.num_classes)}
-    Global_Y_True = []
-    Global_Y_Score = []
+    Global_TP = {cl+1: [] for cl in range(args.num_classes)}
+    Global_FP = {cl+1: [] for cl in range(args.num_classes)}
+    NUM_ANNOTATIONS = {cl+1: 0 for cl in range(args.num_classes)}
+    SCORES = {cl+1: [] for cl in range(args.num_classes)}
     total_num_tests = len(test_images)
 
     for n, image in enumerate(test_images):
@@ -435,44 +462,39 @@ if __name__ == '__main__':
         # Get the number of ground truth bounding boxes and the ground truth bounding boxes
         object_count, Bbox_GT, class_code_GT = Get_GroundTruth_Bounding_Boxes(xml_file)
 
-        # Reset scores and boxes
-        scores = []
-        boxes = []
-        
-        print('======================================================================')
+        print('===================================================================================================')
         print(f'[{n+1}/{total_num_tests}] Image: ', image)
+
         scores, boxes = detect(img, model, transform)
-        scores_1, boxes_1 = Select_Bounding_Boxes(scores, boxes)
-        # Compute TP, FP, FN
-        TP, FP, FN, y_score, y_true = Get_TP_FP_FN_byIoU(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=args.num_classes)
-        Global_Y_Score += y_score
-        Global_Y_True += y_true
+        TP, FP, FN, num_annotations, score = evaluate_sample(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=args.num_classes)
 
         # Print TP, FP, FN in one line
         print(f'<Confusion Matrix for this Image>')
+        print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|')
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         for i in range(1, args.num_classes+1):
-            if TP[i] + FP[i] == 0 and TP[i] + FN[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t-\t|')
-            elif TP[i] + FP[i] == 0:
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t-\t|\t{TP[i]/(TP[i]+FN[i]):.3f}\t|')
-            elif TP[i] + FN[i] == 0:
-                PRECISION = TP[i]/(TP[i]+FP[i])
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t-\t|')
+            TP_ = sum(TP[i])
+            FP_ = sum(FP[i])
+            FN_ = int(FN[i])
+            if TP_ + FP_ == 0 and TP_ + FN_ == 0:
+                print(f'|\t{i}\t|\t{TP_}\t|\t{FP_}\t|\t{FN_}\t|\t-\t|\t-\t|')
+            elif TP_ + FP_ == 0:
+                print(f'|\t{i}\t|\t{TP_}\t|\t{FP_}\t|\t{FN_}\t|\t-\t|\t{TP_/(TP_+FN_):.3f}\t|')
+            elif TP_ + FN_ == 0:
+                PRECISION = TP_/(TP_+FP_)
+                print(f'|\t{i}\t|\t{TP_}\t|\t{FP_}\t|\t{FN_}\t|\t{PRECISION:.3f}\t|\t-\t|')
             else:
-                PRECISION = TP[i]/(TP[i]+FP[i])
-                RECALL = TP[i]/(TP[i]+FN[i]) 
-                print(f'|\t{i}\t|\t{TP[i]}\t|\t{FP[i]}\t|\t{FN[i]}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|')
+                PRECISION = TP_/(TP_+FP_)
+                RECALL = TP_/(TP_+FN_) 
+                print(f'|\t{i}\t|\t{TP_}\t|\t{FP_}\t|\t{FN_}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|')
 
             Global_TP[i] += TP[i]
             Global_FP[i] += FP[i]
-            Global_FN[i] += FN[i]
-        
-        print('----------------------------------------------------------------------')
+            NUM_ANNOTATIONS[i] += num_annotations[i]
+            SCORES[i] += score[i]
+        print('|---------------|---------------|---------------|---------------|---------------|---------------|')
 
-        # Get the class of the bounding box
-        # classes = Get_ClassCode(scores_1)
         classes = Get_ClassCode(scores)
 
         print('<Bounding box details>')
@@ -490,53 +512,35 @@ if __name__ == '__main__':
                 print(classes[i], boxes[i].detach().numpy().tolist())
         
         
-    Global_Y_Score = np.array(Global_Y_Score)
-    Global_Y_True = np.array(Global_Y_True)
+    # Compute 
 
     # Print Global TP, FP, FN
-    print('----------------------------------------------------------------------')
+    print('===================================================================================================')
     print(f'Global Confusion Matrix at threshold')
+    print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
     print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|    F1-score   |')
     print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
     for i in range(1, args.num_classes+1):
-        if Global_TP[i] + Global_FP[i] != 0:
-            PRECISION = Global_TP[i]/(Global_TP[i]+Global_FP[i])
-            RECALL = Global_TP[i]/(Global_TP[i]+Global_FN[i]) 
+        Global_TP_ = sum(Global_TP[i])
+        Global_FP_ = sum(Global_FP[i])
+        Global_FN_ = NUM_ANNOTATIONS[i] - Global_TP_
+        if Global_TP_ + Global_FP_ != 0:
+            PRECISION = Global_TP_/(Global_TP_+Global_FP_)
+            RECALL = Global_TP_/NUM_ANNOTATIONS[i]
             F1_score = 2 * PRECISION * RECALL / (PRECISION + RECALL)
-            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|\t{F1_score:.3f}\t|')
+            print(f'|\t{i}\t|\t{Global_TP_}\t|\t{Global_FP_}\t|\t{Global_FN_}\t|\t{PRECISION:.3f}\t|\t{RECALL:.3f}\t|\t{F1_score:.3f}\t|')
         else:
-            print(f'|\t{i}\t|\t{Global_TP[i]}\t|\t{Global_FP[i]}\t|\t{Global_FN[i]}\t|\t-\t|\t-\t|\t-\t|')
-    print('----------------------------------------------------------------------')
+            print(f'|\t{i}\t|\t{Global_TP_}\t|\t{Global_FP_}\t|\t{Global_FN_}\t|\t-\t|\t-\t|\t-\t|')
+    print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
 
-    print('Create PRECISION-RECALL curve plot...')
+    print('Compute mAP....')
     mAP = 0
     for i in range(1, args.num_classes+1):
-        print(f"Start to draw the curve for class {i}... in ./PRECISION_RECALL_CLASS_{i}.png")
-        display = PrecisionRecallDisplay.from_predictions(Global_Y_True[:,i-1], Global_Y_Score[:,i-1], name="LinearSVC")
-        display.ax_.set_title("2-class Precision-Recall curve")
-        plt.show()
-        plt.savefig(f'../PRECISION_RECALL_CLASS_{i}.png', bbox_inches='tight')
-        average_precision = average_precision_score(Global_Y_True[:,i-1], Global_Y_Score[:,i-1])
-        print(f"Average Precision @ Class {i} : {average_precision:.3f}")
-        mAP += average_precision
+        ap = compute_average_precision(Global_TP[i], Global_FP[i], SCORES[i], NUM_ANNOTATIONS[i])
+        mAP += ap
+        print(f'Average Precision for class {i} : {ap:.3f}')
+
     mAP = mAP / args.num_classes
     print(f"mAP@0.5 : {mAP:.3f}")
-    print('----------------------------------------------------------------------')
-
-
-    # Compute Precision, Recall, F1-score
-    # Finish counting bounding boxes
-    print('----------------------------------------------------------------------')
-    print('Finish counting bounding boxes!!')
-    print("Time complete counting bounding boxes: ", datetime.datetime.now())
-    print('----------------------------------------------------------------------')
-    print('Starting to compute mAP via COCO-API ...')
-
-    # Compute mAP
-    AP = Evaluate_AP(model, args)
-
-    # Print mAP
-    print('-------------------------------------------------------------------------------')
-    print('Evaluation result')
-    print(AP)
-    print("Time complete computing AP: ", datetime.datetime.now())
+    print('===================================================================================================')
+    print("Evaluation Complete: ", datetime.datetime.now())
