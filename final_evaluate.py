@@ -489,8 +489,6 @@ if __name__ == '__main__':
             for i in range(len(boxes)):
                 print(classes[i], boxes[i].detach().numpy().tolist())
         
-        if n == 50:
-            break
         
     Global_Y_Score = np.array(Global_Y_Score)
     Global_Y_True = np.array(Global_Y_True)
