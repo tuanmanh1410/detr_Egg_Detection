@@ -418,7 +418,10 @@ def _compute_ap(recall, precision):
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser('EGG Evaluation starting ...', parents=[get_args_parser()])
+    print("The evaluation code is based on : https://github.com/fizyr/keras-retinanet/blob/master/keras_retinanet/utils/eval.py")
+    print("The evaluation code is based on : https://github.com/rbgirshick/py-faster-rcnn")
 
     args = parser.parse_args()
     if args.output_dir:
@@ -447,6 +450,7 @@ if __name__ == '__main__':
 
     DIR_TEST = os.path.join(args.coco_path, 'test')
     test_images = collect_all_images(DIR_TEST)
+    NUM_CLASSES = args.num_classes - 1
 
     # Initialize Global TP, FP, FN
     Global_TP = {cl+1: [] for cl in range(args.num_classes)}
@@ -466,14 +470,14 @@ if __name__ == '__main__':
         print(f'[{n+1}/{total_num_tests}] Image: ', image)
 
         scores, boxes = detect(img, model, transform)
-        TP, FP, FN, num_annotations, score = evaluate_sample(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=args.num_classes)
+        TP, FP, FN, num_annotations, score = evaluate_sample(boxes, scores, object_count, Bbox_GT, class_code_GT, IOU_threshold = 0.5, num_classes=NUM_CLASSES)
 
         # Print TP, FP, FN in one line
         print(f'<Confusion Matrix for this Image>')
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|')
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
-        for i in range(1, args.num_classes+1):
+        for i in range(1, args.num_classes):
             TP_ = sum(TP[i])
             FP_ = sum(FP[i])
             FN_ = int(FN[i])
@@ -520,7 +524,7 @@ if __name__ == '__main__':
     print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
     print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|    F1-score   |')
     print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
-    for i in range(1, args.num_classes+1):
+    for i in range(1, args.num_classes):
         Global_TP_ = sum(Global_TP[i])
         Global_FP_ = sum(Global_FP[i])
         Global_FN_ = NUM_ANNOTATIONS[i] - Global_TP_
@@ -535,12 +539,12 @@ if __name__ == '__main__':
 
     print('Compute mAP....')
     mAP = 0
-    for i in range(1, args.num_classes+1):
+    for i in range(1, args.num_classes):
         ap = compute_average_precision(Global_TP[i], Global_FP[i], SCORES[i], NUM_ANNOTATIONS[i])
         mAP += ap
         print(f'Average Precision for class {i} : {ap:.3f}')
 
-    mAP = mAP / args.num_classes
+    mAP = mAP / NUM_CLASSES
     print(f"mAP@0.5 : {mAP:.3f}")
     print('===================================================================================================')
     print("Evaluation Complete: ", datetime.datetime.now())
