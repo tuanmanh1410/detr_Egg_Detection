@@ -1,19 +1,18 @@
 # Command line: python final_evaluate.py --coco_path --resume --num_classes --detail
+# This is updated version of final_evaluate.py with class wise AP score
+
 import datetime
 import argparse
 
-import time
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
-import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate
-from tta_engine import tta_evaluate
 from models import build_model
 
 # Library for evaluation bounding boxes
