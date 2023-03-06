@@ -298,7 +298,7 @@ def evaluate_sample(bboxes_scaled, probas, object_count, Bbox_GT, class_code_GT,
     all_detections = get_detections(bboxes_scaled, class_score, class_code)
     all_annotations = get_annotations(Bbox_GT, class_code_GT)
 
-    for label in range(1, num_classes+1):
+    for label in range(1, num_classes):
 
         num_annotations = 0.0
         detections = []
@@ -471,7 +471,7 @@ if __name__ == '__main__':
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
         print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|')
         print('|---------------|---------------|---------------|---------------|---------------|---------------|')
-        for i in range(1, args.num_classes+1):
+        for i in range(1, args.num_classes):
             TP_ = sum(TP[i])
             FP_ = sum(FP[i])
             FN_ = int(FN[i])
@@ -518,7 +518,7 @@ if __name__ == '__main__':
     print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
     print('|\tCLASS\t|\tTP\t|\tFP\t|\tFN\t|   Precision   |\tRecall\t|    F1-score   |')
     print('|---------------|---------------|---------------|---------------|---------------|---------------|---------------|')
-    for i in range(1, args.num_classes+1):
+    for i in range(1, args.num_classes):
         Global_TP_ = sum(Global_TP[i])
         Global_FP_ = sum(Global_FP[i])
         Global_FN_ = NUM_ANNOTATIONS[i] - Global_TP_
@@ -533,7 +533,7 @@ if __name__ == '__main__':
 
     print('Compute mAP....')
     mAP = 0
-    for i in range(1, args.num_classes+1):
+    for i in range(1, args.num_classes):
         ap = compute_average_precision(Global_TP[i], Global_FP[i], SCORES[i], NUM_ANNOTATIONS[i])
         mAP += ap
         print(f'Average Precision for class {i} : {ap:.3f}')
